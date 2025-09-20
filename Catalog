@@ -1,0 +1,123 @@
+import java.io.File;
+import java.io.IOException;
+import java.math.BigInteger;
+import java.nio.file.Files;
+import java.util.*;
+
+public class CatalogPlacementsSolver {
+
+    static class Point {
+        BigInteger x;
+        BigInteger y;
+        Point(BigInteger x, BigInteger y) { this.x = x; this.y = y; }
+    }
+
+    // Parse string in arbitrary base to BigInteger
+    public static BigInteger parseToBigInt(String value, int base) {
+        BigInteger result = BigInteger.ZERO;
+        BigInteger bigBase = BigInteger.valueOf(base);
+        for (char ch : value.toCharArray()) {
+            int digit = Character.digit(ch, base);
+            if (digit == -1) throw new IllegalArgumentException("Invalid digit '" + ch + "' for base " + base);
+            result = result.multiply(bigBase).add(BigInteger.valueOf(digit));
+        }
+        return result;
+    }
+
+    // Simple parser for your JSON structure
+    public static Map<String, Map<String, String>> parseJsonFile(File file) throws IOException {
+        Map<String, Map<String, String>> data = new HashMap<>();
+        String content = new String(Files.readAllBytes(file.toPath())).replaceAll("[\\n\\r]", "").trim();
+
+        // Remove outer braces
+        content = content.substring(1, content.length() - 1);
+
+        // Split top-level keys
+        String[] entries = content.split("(?<=\\}),"); // split at }, but keep }
+
+        for (String entry : entries) {
+            entry = entry.trim();
+            if (entry.isEmpty()) continue;
+
+            int colonIndex = entry.indexOf(":");
+            String key = entry.substring(0, colonIndex).replaceAll("\"", "").trim();
+            String value = entry.substring(colonIndex + 1).trim();
+
+            Map<String, String> map = new HashMap<>();
+            if (value.startsWith("{")) {
+                // inside object
+                value = value.substring(1, value.length() - 1); // remove {}
+                String[] kvPairs = value.split(",");
+                for (String kv : kvPairs) {
+                    String[] kvSplit = kv.split(":");
+                    String k = kvSplit[0].replaceAll("\"", "").trim();
+                    String v = kvSplit[1].replaceAll("\"", "").trim();
+                    map.put(k, v);
+                }
+            }
+            data.put(key, map);
+        }
+
+        return data;
+    }
+
+    public static BigInteger findSecret(File file) throws IOException {
+        Map<String, Map<String, String>> data = parseJsonFile(file);
+
+        int k = Integer.parseInt(data.get("keys").get("k"));
+        List<Point> points = new ArrayList<>();
+
+        for (String key : data.keySet()) {
+            if (key.equals("keys")) continue;
+            BigInteger x = new BigInteger(key);
+            int base = Integer.parseInt(data.get(key).get("base"));
+            String value = data.get(key).get("value");
+            BigInteger y = parseToBigInt(value, base);
+            points.add(new Point(x, y));
+        }
+
+        if (points.size() < k)
+            throw new IllegalArgumentException("Not enough points in file. Found " + points.size() + " but need " + k);
+
+        points.sort(Comparator.comparing(p -> p.x));
+        List<Point> selectedPoints = points.subList(0, k);
+
+        BigInteger secret = BigInteger.ZERO;
+        for (int j = 0; j < k; j++) {
+            BigInteger xj = selectedPoints.get(j).x;
+            BigInteger yj = selectedPoints.get(j).y;
+            BigInteger numerator = BigInteger.ONE;
+            BigInteger denominator = BigInteger.ONE;
+
+            for (int i = 0; i < k; i++) {
+                if (i == j) continue;
+                BigInteger xi = selectedPoints.get(i).x;
+                numerator = numerator.multiply(xi);
+                denominator = denominator.multiply(xj.subtract(xi));
+            }
+
+            secret = secret.add(yj.multiply(numerator).divide(denominator));
+        }
+
+        return secret;
+    }
+
+    public static void main(String[] args) {
+        File folder = new File(System.getProperty("user.dir"));
+        File[] jsonFiles = folder.listFiles((dir, name) -> name.endsWith(".json"));
+
+        if (jsonFiles == null || jsonFiles.length == 0) {
+            System.err.println("No JSON test case files found.");
+            System.exit(1);
+        }
+
+        for (File file : jsonFiles) {
+            try {
+                BigInteger secret = findSecret(file);
+                System.out.println(secret);
+            } catch (Exception e) {
+                System.err.println("❌ Error processing " + file.getName() + ": " + e.getMessage());
+            }
+        }
+    }
+}
